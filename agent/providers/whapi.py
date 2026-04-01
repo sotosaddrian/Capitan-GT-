@@ -59,57 +59,77 @@ class ProveedorWhapi(ProveedorWhatsApp):
         if not self.token:
             logger.warning("WHAPI_TOKEN no configurado — reenvío no realizado")
             return False
-        headers = {
-            "Authorization": f"Bearer {self.token}",
-            "Content-Type": "application/json",
-        }
-        async with httpx.AsyncClient() as client:
-            r = await client.post(
-                "https://gate.whapi.cloud/messages/forward",
-                json={"message_id": mensaje_id, "to": telefono_destino},
-                headers=headers,
-            )
-            if r.status_code not in (200, 201):
-                logger.error(f"Error reenvío Whapi: {r.status_code} — {r.text}")
-            return r.status_code in (200, 201)
+        try:
+            numero = self._normalizar_telefono(telefono_destino)
+            headers = {
+                "Authorization": f"Bearer {self.token}",
+                "Content-Type": "application/json",
+            }
+            async with httpx.AsyncClient(timeout=30) as client:
+                r = await client.post(
+                    "https://gate.whapi.cloud/messages/forward",
+                    json={"message_id": mensaje_id, "to": numero},
+                    headers=headers,
+                )
+                if r.status_code not in (200, 201):
+                    logger.error(f"Error reenvío Whapi: {r.status_code} — {r.text}")
+                return r.status_code in (200, 201)
+        except Exception as e:
+            logger.error(f"Excepción en reenviar_mensaje: {type(e).__name__}: {e}")
+            return False
 
     async def enviar_imagen(self, telefono: str, url_imagen: str, caption: str = "") -> bool:
         """Envía una imagen desde URL via Whapi.cloud."""
         if not self.token:
             logger.warning("WHAPI_TOKEN no configurado — imagen no enviada")
             return False
-        headers = {
-            "Authorization": f"Bearer {self.token}",
-            "Content-Type": "application/json",
-        }
-        payload = {"to": telefono, "media": url_imagen}
-        if caption:
-            payload["caption"] = caption
-        async with httpx.AsyncClient() as client:
-            r = await client.post(
-                "https://gate.whapi.cloud/messages/image",
-                json=payload,
-                headers=headers,
-            )
-            if r.status_code not in (200, 201):
-                logger.error(f"Error enviando imagen Whapi: {r.status_code} — {r.text}")
-            return r.status_code in (200, 201)
+        try:
+            numero = self._normalizar_telefono(telefono)
+            headers = {
+                "Authorization": f"Bearer {self.token}",
+                "Content-Type": "application/json",
+            }
+            payload = {"to": numero, "media": url_imagen}
+            if caption:
+                payload["caption"] = caption
+            async with httpx.AsyncClient(timeout=30) as client:
+                r = await client.post(
+                    "https://gate.whapi.cloud/messages/image",
+                    json=payload,
+                    headers=headers,
+                )
+                if r.status_code not in (200, 201):
+                    logger.error(f"Error enviando imagen Whapi: {r.status_code} — {r.text}")
+                return r.status_code in (200, 201)
+        except Exception as e:
+            logger.error(f"Excepción en enviar_imagen a {telefono}: {type(e).__name__}: {e}")
+            return False
+
+    def _normalizar_telefono(self, telefono: str) -> str:
+        """Whapi recibe chat_id con @s.whatsapp.net pero la API de envío solo necesita el número."""
+        return telefono.split("@")[0]
 
     async def enviar_mensaje(self, telefono: str, mensaje: str) -> bool:
         """Envía mensaje via Whapi.cloud."""
         if not self.token:
             logger.warning("WHAPI_TOKEN no configurado — mensaje no enviado")
             return False
-        headers = {
-            "Authorization": f"Bearer {self.token}",
-            "Content-Type": "application/json",
-        }
-        async with httpx.AsyncClient() as client:
-            r = await client.post(
-                self.url_envio,
-                json={"to": telefono, "body": mensaje},
-                headers=headers,
-            )
-            if r.status_code != 200:
-                logger.error(f"Error Whapi: {r.status_code} — {r.text}")
-            return r.status_code == 200
+        try:
+            numero = self._normalizar_telefono(telefono)
+            headers = {
+                "Authorization": f"Bearer {self.token}",
+                "Content-Type": "application/json",
+            }
+            async with httpx.AsyncClient(timeout=30) as client:
+                r = await client.post(
+                    self.url_envio,
+                    json={"to": numero, "body": mensaje},
+                    headers=headers,
+                )
+                if r.status_code not in (200, 201):
+                    logger.error(f"Error Whapi enviar: {r.status_code} — {r.text}")
+                    return False
+                return True
+        except Exception as e:
+            logger.error(f"Excepción en enviar_mensaje a {telefono}: {type(e).__name__}: {e}")
+            return False
