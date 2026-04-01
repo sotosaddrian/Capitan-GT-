@@ -227,17 +227,22 @@ async def webhook_handler(request: Request):
     - Si el mensaje viene del dueño → reenviar al cliente en cola de pago
     - Si viene de un cliente → procesar con David (Claude AI)
     """
+    # Siempre responder 200 a Whapi — si lanzamos 500 Whapi reintenta en bucle
     try:
         mensajes = await proveedor.parsear_webhook(request)
+    except Exception as e:
+        logger.error(f"Error parseando webhook: {e}")
+        return {"status": "ok"}
 
-        for msg in mensajes:
+    for msg in mensajes:
+        try:
             # Ignorar mensajes propios o vacíos
-            if msg.es_propio or not msg.texto:
+            if msg.es_propio or not msg.texto.strip():
                 continue
 
             # ── Mensaje del dueño: reenviar link/imagen al cliente ──
             if es_mensaje_del_dueno(msg.telefono):
-                logger.info(f"Mensaje del dueño recibido — reenviando pago al cliente")
+                logger.info("Mensaje del dueño recibido — reenviando pago al cliente")
                 await manejar_mensaje_dueno(msg.mensaje_id, msg.texto)
                 continue
 
@@ -250,6 +255,7 @@ async def webhook_handler(request: Request):
             # Detectar marcadores internos en la respuesta de David
             pago_listo = MARCADOR_PAGO in respuesta
             match_fotos = PATRON_BUSCAR_FOTOS.search(respuesta)
+            match_precio = PATRON_BUSCAR_PRECIO.search(respuesta)
 
             # Limpiar todos los marcadores antes de enviar al cliente
             respuesta_limpia = respuesta.replace(MARCADOR_PAGO, "")
@@ -260,24 +266,21 @@ async def webhook_handler(request: Request):
             await guardar_mensaje(msg.telefono, "assistant", respuesta_limpia)
             await proveedor.enviar_mensaje(msg.telefono, respuesta_limpia)
 
-            # Ejecutar acciones de los marcadores detectados
+            logger.info(f"Respuesta a {msg.telefono}: {respuesta_limpia}")
+
+            # Ejecutar acciones especiales en background (no bloquean la respuesta)
             if pago_listo:
                 historial_completo = await obtener_historial(msg.telefono)
                 await notificar_dueno(msg.telefono, historial_completo)
 
             if match_fotos:
-                modelo_buscado = match_fotos.group(1).strip()
-                await manejar_busqueda_fotos(msg.telefono, modelo_buscado)
+                await manejar_busqueda_fotos(msg.telefono, match_fotos.group(1).strip())
 
-            match_precio = PATRON_BUSCAR_PRECIO.search(respuesta)
             if match_precio:
-                modelo_precio = match_precio.group(1).strip()
-                await manejar_precio_original(msg.telefono, modelo_precio)
+                await manejar_precio_original(msg.telefono, match_precio.group(1).strip())
 
-            logger.info(f"Respuesta a {msg.telefono}: {respuesta_limpia}")
+        except Exception as e:
+            logger.error(f"Error procesando mensaje de {msg.telefono}: {e}")
+            continue
 
-        return {"status": "ok"}
-
-    except Exception as e:
-        logger.error(f"Error en webhook: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return {"status": "ok"}

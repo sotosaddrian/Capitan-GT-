@@ -18,16 +18,40 @@ class ProveedorWhapi(ProveedorWhatsApp):
         self.url_envio = "https://gate.whapi.cloud/messages/text"
 
     async def parsear_webhook(self, request: Request) -> list[MensajeEntrante]:
-        """Parsea el payload de Whapi.cloud."""
-        body = await request.json()
+        """Parsea el payload de Whapi.cloud con manejo robusto de todos los tipos."""
+        try:
+            body = await request.json()
+        except Exception:
+            logger.warning("Webhook recibido con body no-JSON — ignorando")
+            return []
+
         mensajes = []
         for msg in body.get("messages", []):
-            mensajes.append(MensajeEntrante(
-                telefono=msg.get("chat_id", ""),
-                texto=msg.get("text", {}).get("body", ""),
-                mensaje_id=msg.get("id", ""),
-                es_propio=msg.get("from_me", False),
-            ))
+            try:
+                tipo = msg.get("type", "")
+
+                # Solo procesar mensajes de texto — ignorar imágenes, audio, video, etc.
+                if tipo != "text":
+                    logger.debug(f"Mensaje tipo '{tipo}' ignorado")
+                    continue
+
+                texto = ""
+                text_field = msg.get("text")
+                if isinstance(text_field, dict):
+                    texto = text_field.get("body", "")
+                elif isinstance(text_field, str):
+                    texto = text_field
+
+                mensajes.append(MensajeEntrante(
+                    telefono=msg.get("chat_id", ""),
+                    texto=texto,
+                    mensaje_id=msg.get("id", ""),
+                    es_propio=msg.get("from_me", False),
+                ))
+            except Exception as e:
+                logger.warning(f"Error procesando mensaje individual: {e} — {msg}")
+                continue
+
         return mensajes
 
     async def reenviar_mensaje(self, mensaje_id: str, telefono_destino: str) -> bool:
