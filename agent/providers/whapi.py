@@ -15,7 +15,12 @@ class ProveedorWhapi(ProveedorWhatsApp):
 
     def __init__(self):
         self.token = os.getenv("WHAPI_TOKEN")
-        self.url_envio = "https://gate.whapi.cloud/messages/text"
+        channel_id = os.getenv("WHAPI_CHANNEL_ID", "")
+        base = f"https://gate.whapi.cloud/{channel_id}" if channel_id else "https://gate.whapi.cloud"
+        self.url_base = base
+        self.url_envio = f"{base}/messages/text"
+        self.url_imagen = f"{base}/messages/image"
+        self.url_forward = f"{base}/messages/forward"
 
     async def parsear_webhook(self, request: Request) -> list[MensajeEntrante]:
         """Parsea el payload de Whapi.cloud con manejo robusto de todos los tipos."""
@@ -67,7 +72,7 @@ class ProveedorWhapi(ProveedorWhatsApp):
             }
             async with httpx.AsyncClient(timeout=30) as client:
                 r = await client.post(
-                    "https://gate.whapi.cloud/messages/forward",
+                    self.url_forward,
                     json={"message_id": mensaje_id, "to": numero},
                     headers=headers,
                 )
@@ -94,7 +99,7 @@ class ProveedorWhapi(ProveedorWhatsApp):
                 payload["caption"] = caption
             async with httpx.AsyncClient(timeout=30) as client:
                 r = await client.post(
-                    "https://gate.whapi.cloud/messages/image",
+                    self.url_imagen,
                     json=payload,
                     headers=headers,
                 )
