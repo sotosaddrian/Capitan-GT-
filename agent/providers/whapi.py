@@ -34,25 +34,36 @@ class ProveedorWhapi(ProveedorWhatsApp):
         for msg in body.get("messages", []):
             try:
                 tipo = msg.get("type", "")
+                es_propio = msg.get("from_me", False)
+                telefono = msg.get("chat_id", "")
+                mensaje_id = msg.get("id", "")
 
-                # Solo procesar mensajes de texto — ignorar imágenes, audio, video, etc.
-                if tipo != "text":
+                if tipo == "text":
+                    text_field = msg.get("text")
+                    if isinstance(text_field, dict):
+                        texto = text_field.get("body", "")
+                    else:
+                        texto = str(text_field) if text_field else ""
+                    mensajes.append(MensajeEntrante(
+                        telefono=telefono, texto=texto,
+                        mensaje_id=mensaje_id, es_propio=es_propio,
+                        tipo="text",
+                    ))
+
+                elif tipo == "image":
+                    # Capturar URL de la imagen para analizarla con Claude Vision
+                    image_field = msg.get("image", {})
+                    url_img = image_field.get("link") or image_field.get("url", "")
+                    caption = image_field.get("caption", "") or msg.get("caption", "")
+                    mensajes.append(MensajeEntrante(
+                        telefono=telefono, texto=caption,
+                        mensaje_id=mensaje_id, es_propio=es_propio,
+                        tipo="image", url_media=url_img,
+                    ))
+
+                else:
                     logger.debug(f"Mensaje tipo '{tipo}' ignorado")
-                    continue
 
-                texto = ""
-                text_field = msg.get("text")
-                if isinstance(text_field, dict):
-                    texto = text_field.get("body", "")
-                elif isinstance(text_field, str):
-                    texto = text_field
-
-                mensajes.append(MensajeEntrante(
-                    telefono=msg.get("chat_id", ""),
-                    texto=texto,
-                    mensaje_id=msg.get("id", ""),
-                    es_propio=msg.get("from_me", False),
-                ))
             except Exception as e:
                 logger.warning(f"Error procesando mensaje individual: {e} — {msg}")
                 continue

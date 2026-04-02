@@ -21,7 +21,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse
 from dotenv import load_dotenv
 
-from agent.brain import generar_respuesta
+from agent.brain import generar_respuesta, analizar_imagen_zapato
 from agent.tools import buscar_fotos_catalogo, buscar_precio_original
 from agent.memory import (
     inicializar_db, guardar_mensaje, obtener_historial,
@@ -236,8 +236,8 @@ async def webhook_handler(request: Request):
 
     for msg in mensajes:
         try:
-            # Ignorar mensajes propios o vacíos
-            if msg.es_propio or not msg.texto.strip():
+            # Ignorar mensajes propios o sin contenido (texto ni imagen)
+            if msg.es_propio or (not msg.texto.strip() and not msg.url_media):
                 continue
 
             # ── Mensaje del dueño: reenviar link/imagen al cliente ──
@@ -247,7 +247,19 @@ async def webhook_handler(request: Request):
                 continue
 
             # ── Mensaje de cliente: procesar con David ──
-            logger.info(f"Mensaje de {msg.telefono}: {msg.texto}")
+            logger.info(f"Mensaje de {msg.telefono} [{msg.tipo}]: {msg.texto or msg.url_media}")
+
+            # ── Imagen: analizar suela y responder con precio ──
+            if msg.tipo == "image" and msg.url_media:
+                from agent.providers.whapi import ProveedorWhapi
+                token_whapi = proveedor.token if isinstance(proveedor, ProveedorWhapi) else ""
+                respuesta_img = await analizar_imagen_zapato(msg.url_media, token_whapi)
+                caption = msg.texto or ""
+                await guardar_mensaje(msg.telefono, "user", f"[imagen] {caption}".strip())
+                await guardar_mensaje(msg.telefono, "assistant", respuesta_img)
+                await proveedor.enviar_mensaje(msg.telefono, respuesta_img)
+                logger.info(f"Respuesta imagen a {msg.telefono}: {respuesta_img[:80]}...")
+                continue
 
             historial = await obtener_historial(msg.telefono)
             respuesta = await generar_respuesta(msg.texto, historial)
